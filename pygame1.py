@@ -1,192 +1,145 @@
+# -*- coding:utf-8 -*-
 import pygame
-import math
+from pygame.locals import *
 import sys
 
-# 画面サイズ
-SCREEN = (0, 0, 400, 400)
+# ボールの動きを計算
+def calc_ball(ball_x, ball_y, ball_vx, ball_vy, bar1_x, bar1_y, bar2_x, bar2_y):
+        if ball_x <= bar1_x + 10.:
+            if ball_y >= bar1_y - 7.5 and ball_y <= bar1_y + 42.5:
+                ball_x = 20.
+                ball_vx = -ball_vx
+        if ball_x >= bar2_x - 15.:
+            if ball_y >= bar2_y - 7.5 and ball_y <= bar2_y + 42.5:
+                ball_x = 605.
+                ball_vx = -ball_vx
+        if ball_x < 5.:
+            ball_x, ball_y = 320., 232.5
+        elif ball_x > 620.:
+            ball_x, ball_y = 307.5, 232.5
+        if ball_y <= 10.:
+            ball_vy = -ball_vy
+            ball_y = 10.
+        elif ball_y >= 457.5:
+            ball_vy = -ball_vy
+            ball_y = 457.5
 
-# バドルのクラス
-class Paddle(pygame.sprite.Sprite):    #2番目のspriteがおかしい
-    # コンストラクタ（初期化メソッド）
-    def __init__(self, filename):
-        pygame.sprite.Sprite.__init__(self, self.containers)
-        self.image = pygame.image.load(filename).convert()
-        self.rect = self.image.get_rect()
-        self.rect.bottom = SCREEN.bottom - 20          # パドルのy座標
+        return ball_x, ball_y, ball_vx, ball_vy
 
-    def update(self):
-        self.rect.centerx = pygame.mouse.get_pos()[0]  # マウスのx座標をパドルのx座標に
-        self.rect.clamp_ip(SCREEN)                     # ゲーム画面内のみで移動
+# AIの動きを計算
+def calc_ai(ball_x, ball_y, bar2_x, bar2_y):
+    dy = ball_y - bar2_y
+    if dy > 80: bar2_y += 20
+    elif dy > 50: bar2_y += 15
+    elif dy > 30: bar2_y += 12
+    elif dy > 10: bar2_y += 8
+    elif dy < -80: bar2_y -= 20
+    elif dy < -50: bar2_y -= 15
+    elif dy < -30: bar2_y -= 12
+    elif dy < -10: bar2_y -= 8
 
-# ボールのクラス
-class Ball(pygame.sprite.Sprite):
-    # コンストラクタ（初期化メソッド）
-    def __init__(self, filename, paddle, blocks, score, speed, angle_left, angle_right):
-        pygame.sprite.Sprite.__init__(self, self.containers)
-        self.image = pygame.image.load(filename).convert()
-        self.rect = self.image.get_rect()
-        self.dx = self.dy = 0  # ボールの速度
-        self.paddle = paddle  # パドルへの参照
-        self.blocks = blocks  # ブロックグループへの参照
-        self.update = self.start # ゲーム開始状態に更新
-        self.score = score
-        self.hit = 0  # 連続でブロックを壊した回数
-        self.speed = speed # ボールの初期速度
-        self.angle_left = angle_left # パドルの反射方向(左端:135度）
-        self.angle_right = angle_right # パドルの反射方向(右端:45度）
+    if bar2_y >= 420.: bar2_y = 420.
+    elif bar2_y <= 10.: bar2_y = 10.
+    return bar2_y
 
-    # ゲーム開始状態（マウスを左クリック時するとボール射出）
-    def start(self):
-        # ボールの初期位置(パドルの上)
-        self.rect.centerx = self.paddle.rect.centerx
-        self.rect.bottom = self.paddle.rect.top
+# プレイヤーの動き
+def calc_player(bar1_y, bar1_dy):
+    bar1_y += bar1_dy
+    if bar1_y >= 420.: bar1_y = 420.
+    elif bar1_y <= 10. : bar1_y = 10.
+    return bar1_y
 
-        # 左クリックでボール射出
-        if pygame.mouse.get_pressed()[0] == 1:
-            self.dx = 0
-            self.dy = -self.speed
-            self.update = self.move
+# 得点の計算
+def calc_score(ball_x, score1, score2):
+    if ball_x < 5.:
+        score2 += 1
+    if ball_x > 620.:
+        score1 += 1
+    return score1, score2
 
-    # ボールの挙動
-    def move(self):
-        self.rect.centerx += self.dx
-        self.rect.centery += self.dy
-
-        # 壁との反射
-        if self.rect.left < SCREEN.left:    # 左側
-            self.rect.left = SCREEN.left
-            self.dx = -self.dx              # 速度を反転
-        if self.rect.right > SCREEN.right:  # 右側
-            self.rect.right = SCREEN.right
-            self.dx = -self.dx
-        if self.rect.top < SCREEN.top:      # 上側
-            self.rect.top = SCREEN.top
-            self.dy = -self.dy
-
-        # パドルとの反射(左端:135度方向, 右端:45度方向, それ以外:線形補間)
-        # 2つのspriteが接触しているかどうかの判定
-        if self.rect.colliderect(self.paddle.rect) and self.dy > 0:
-            self.hit = 0                                # 連続ヒットを0に戻す
-            (x1, y1) = (self.paddle.rect.left - self.rect.width, self.angle_left)
-            (x2, y2) = (self.paddle.rect.right, self.angle_right)
-            x = self.rect.left                          # ボールが当たった位置
-            y = (float(y2-y1)/(x2-x1)) * (x - x1) + y1  # 線形補間
-            angle = math.radians(y)                     # 反射角度
-            self.dx = self.speed * math.cos(angle)
-            self.dy = -self.speed * math.sin(angle)
-            self.paddle_sound.play()                    # 反射音
-
-        # ボールを落とした場合
-        if self.rect.top > SCREEN.bottom:
-            self.update = self.start                    # ボールを初期状態に
-            self.gameover_sound.play()
-            self.hit = 0
-            self.score.add_score(-100)                  # スコア減点-100点
-
-        # ボールと衝突したブロックリストを取得（Groupが格納しているSprite中から、指定したSpriteと接触しているものを探索）
-        blocks_collided = pygame.sprite.spritecollide(self, self.blocks, True)
-        if blocks_collided:  # 衝突ブロックがある場合
-            oldrect = self.rect
-            for block in blocks_collided:
-                # ボールが左からブロックへ衝突した場合
-                if oldrect.left < block.rect.left and oldrect.right < block.rect.right:
-                    self.rect.right = block.rect.left
-                    self.dx = -self.dx
-                    
-                # ボールが右からブロックへ衝突した場合
-                if block.rect.left < oldrect.left and block.rect.right < oldrect.right:
-                    self.rect.left = block.rect.right
-                    self.dx = -self.dx
-
-                # ボールが上からブロックへ衝突した場合
-                if oldrect.top < block.rect.top and oldrect.bottom < block.rect.bottom:
-                    self.rect.bottom = block.rect.top
-                    self.dy = -self.dy
-
-                # ボールが下からブロックへ衝突した場合
-                if block.rect.top < oldrect.top and block.rect.bottom < oldrect.bottom:
-                    self.rect.top = block.rect.bottom
-                    self.dy = -self.dy
-                self.block_sound.play()     # 効果音を鳴らす
-                self.hit += 1               # 衝突回数
-                self.score.add_score(self.hit * 10)   # 衝突回数に応じてスコア加点
-
-# ブロックのクラス
-class Block(pygame.sprite.Sprite):
-    def __init__(self, filename, x, y):
-        pygame.sprite.Sprite.__init__(self, self.containers)
-        self.image = pygame.image.load(filename).convert()
-        self.rect = self.image.get_rect()
-        # ブロックの左上座標
-        self.rect.left = SCREEN.left + x * self.rect.width
-        self.rect.top = SCREEN.top + y * self.rect.height
-
-# スコアのクラス
-class Score():
-    def __init__(self, x, y):
-        self.sysfont = pygame.font.SysFont(None, 20)
-        self.score = 0
-        (self.x, self.y) = (x, y)
-    def draw(self, screen):
-        img = self.sysfont.render("SCORE:"+str(self.score), True, (255,255,250))
-        screen.blit(img, (self.x, self.y))
-    def add_score(self, x):
-        self.score += x
+# イベント処理
+def event(bar1_dy):
+    for event in pygame.event.get():
+        if event.type == QUIT:          # 閉じるボタンが押されたら終了
+            pygame.quit()
+            sys.exit()
+        if event.type == KEYDOWN:       # キーを押したら
+            if event.key == K_UP:
+                bar1_dy = -10
+            elif event.key == K_DOWN:
+                bar1_dy = 10
+        elif event.type == KEYUP:       # キーを押し終わったら
+            if event.key == K_UP:
+                bar1_dy = 0.
+            elif event.key == K_DOWN:
+                bar1_dy = 0.
+    return bar1_dy
 
 def main():
-    pygame.init()
-    screen = pygame.display.set_mode(SCREEN.size)
-    Ball.paddle_sound = pygame.mixer.Sound("#")    # パドルにボールが衝突した時の効果音取得
-    Ball.block_sound = pygame.mixer.Sound("#")    # ブロックにボールが衝突した時の効果音取得
-    Ball.gameover_sound = pygame.mixer.Sound("#")    # ゲームオーバー時の効果音取得
-    # 描画用のスプライトグループ
-    group = pygame.sprite.RenderUpdates()  
+    # 各パラメータ
+    bar1_x, bar1_y = 10. , 215.
+    bar2_x, bar2_y = 620., 215.
+    ball_x, ball_y = 307.5, 232.5
+    bar1_dy, bar2_dy = 0. , 0.
+    ball_vx, ball_vy = 250., 250.
+    score1, score2 = 0,0
+    ball_r = 7
 
-    # 衝突判定用のスプライトグループ
-    blocks = pygame.sprite.Group()   
-
-    # スプライトグループに追加    
-    Paddle.containers = group
-    Ball.containers = group
-    Block.containers = group, blocks
-
-    # パドルの作成
-    paddle = Paddle("#")
-
-    # ブロックの作成(14*10)
-    for x in range(1, 15):
-        for y in range(1, 11):
-            Block("#", x, y)
-
-    # スコアを画面(10, 10)に表示
-    score = Score(10, 10)    
-
-    # ボールを作成
-    Ball("#",
-         paddle, blocks, score, 5, 135, 45)
-    
+    # pygameの設定
+    pygame.init()                                       # Pygameの初期化
+    screen = pygame.display.set_mode((640,480),0,32)    # 画面の大きさ
+    pygame.display.set_caption("卓球ゲーム")                  # 画面タイトル
     clock = pygame.time.Clock()
+    font = pygame.font.SysFont(None,40)                 # 画面文字の設定
+
+    # 背景の設定
+    back = pygame.Surface((640,480))
+    background = back.convert()
+    screen.fill((0,0,0))
+
+    # ボールを打つバーの設定
+    bar = pygame.Surface((10,50))
+    bar1 = bar.convert()
+    bar1.fill((255,255,255))
+    bar2 = bar.convert()
+    bar2.fill((255,255,255))
+
+    # ボールの設定
+    circ_sur = pygame.Surface((20,20))
+    pygame.draw.circle(circ_sur,(255,255,255),(ball_r, ball_r), ball_r)
+    ball = circ_sur
+    ball.set_colorkey((0,0,0))
 
     while (1):
-        clock.tick(60)      # フレームレート(60fps)
-        screen.fill((0,20,0))
-        # 全てのスプライトグループを更新
-        group.update()
-        # 全てのスプライトグループを描画       
-        group.draw(screen)
-        # スコアを描画  
-        score.draw(screen) 
-        # 画面更新 
-        pygame.display.update()
+        # 各オブジェクトの描画
+        screen.blit(background,(0,0))
+        pygame.draw.aaline(screen,(255,255,255),(330,5),(330,475))  # 中央線の描画
+        screen.blit(bar1,(bar1_x,bar1_y))                           # プレイヤー側バーの描画
+        screen.blit(bar2,(bar2_x,bar2_y))                           # CPU側バーの描画
+        screen.blit(ball,(ball_x, ball_y))                          # ボールの描画
+        screen.blit(font.render(str(score1), True,(255,255,255)),(250.,10.))
+        screen.blit(font.render(str(score2), True,(255,255,255)),(400.,10.))
 
-        # キーイベント（終了）
-        for event in pygame.event.get():
-            if event.type == quit:
-                pygame.quit()
-                sys.exit()
-            if event.key == dict_keys:
-                pygame.quit()
-                sys.exit()
+        # プレイヤー側バーの位置
+        bar1_dy = event(bar1_dy)
+        bar1_y = calc_player(bar1_y,bar1_dy)
+
+        # ボールの移動
+        time_passed = clock.tick(30)
+        time_sec = time_passed / 1000.0
+        ball_x += ball_vx * time_sec
+        ball_y += ball_vy * time_sec
+
+        # 得点の計算
+        score1, score2 = calc_score(ball_x, score1, score2)
+
+        # CPUのバー速度を計算
+        bar2_y = calc_ai(ball_x, ball_y, bar2_x, bar2_y)
+
+        # ボールの速度・位置を計算
+        ball_x, ball_y, ball_vx, ball_vy = calc_ball(ball_x, ball_y, ball_vx, ball_vy, bar1_x, bar1_y, bar2_x, bar2_y)
+        pygame.display.update()                                     # 画面を更新
+
 
 if __name__ == "__main__":
     main()
